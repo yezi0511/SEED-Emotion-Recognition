@@ -12,16 +12,29 @@ def get_labels(label_path):
     '''
         得到15个 trials 对应的标签
     :param label_path: 标签文件对应的路径
-    :return: list，对应15个 trials 的标签，2 for positive, 1 for neutral, 0 for negative
+    :return: list，对应15个 trials 的标签，1 for positive, 0 for neutral, -1 for negative
     '''
     return scio.loadmat(label_path, verify_compressed_data_integrity=False)['label'][0]
+
+
+def label_2_onehot(label_list):
+    '''
+        将原始-1， 0， 1标签转化为独热码形式
+    :param label_list: 原始标签列表
+    :return label_onehot: 独热码形式标签列表
+    '''
+    look_up_table = {-1: [1, 0, 0],
+                     0: [0, 1, 0],
+                     1: [0, 0, 1]}
+    label_onehot = [look_up_table[label] for label in label_list]
+    return label_onehot
 
 
 def get_frequency_band_idx(frequency_band):
     '''
         获得频带对应的索引，仅对 ExtractedFeatures 目录下的数据有效
     :param frequency_band: 频带名称，'delta', 'theta', 'alpha', 'beta', 'gamma'
-    :return: idx，频带对应的索引
+    :return idx: 频带对应的索引
     '''
     lookup = {'delta': 0,
               'theta': 1,
@@ -38,7 +51,7 @@ def build_extracted_features_dataset(folder_path, feature_name, frequency_band):
     :param folder_path: ExtractedFeatures 文件夹对应的路径
     :param feature_name: 需要使用的特征名，如 'de_LDS'，'asm_LDS' 等，以 de_LDS1 为例，维度为 62 * 235 * 5，235为影片长度235秒，每秒切分为一个样本，62为通道数，5为频带数
     :param frequency_band: 需要选取的频带，'delta', 'theta', 'alpha', 'beta', 'gamma'
-    :return: feature_vector_list, label_list. 分别为样本的特征向量，样本的标签
+    :return feature_vector_list, label_list: 分别为样本的特征向量，样本的标签
     '''
     frequency_idx = get_frequency_band_idx(frequency_band)
     labels = get_labels(os.path.join(folder_path, 'label.mat'))
@@ -53,12 +66,13 @@ def build_extracted_features_dataset(folder_path, feature_name, frequency_band):
                 file_cnt += 1
                 print('当前已处理到{}，总进度{}/{}'.format(file_name, file_cnt, len(file_list)))
                 if file_name not in skip_set:
+                    all_features_dict = scio.loadmat(os.path.join(folder_path, file_name),
+                                                     verify_compressed_data_integrity=False)
                     for trials in range(1, 16):
-                        all_features_dict = scio.loadmat(os.path.join(folder_path, file_name), verify_compressed_data_integrity=False)
                         cur_feature = all_features_dict[feature_name + str(trials)]
                         cur_feature = np.asarray(cur_feature[:, :, frequency_idx]).T  # 转置后，维度为 N * 62, N 为影片长度
                         feature_vector_list.extend(_ for _ in cur_feature)
-                        for sec in range(len(cur_feature)):
+                        for _ in range(len(cur_feature)):
                             label_list.append(labels[trials - 1])
     except FileNotFoundError as e:
         print('加载数据时出错: {}'.format(e))
@@ -66,8 +80,40 @@ def build_extracted_features_dataset(folder_path, feature_name, frequency_band):
     return feature_vector_list, label_list
 
 
-feature_vector_list, label_list = build_extracted_features_dataset('../../data/ExtractedFeatures/', 'de_LDS', 'gamma')
-print(np.asarray(feature_vector_list).shape)
-print(np.asarray(label_list).shape)
-print(feature_vector_list[0])
-print(label_list[:10])
+def build_preprocessed_eeg_dataset_CNN(folder_path):
+    '''
+        预处理后的 EEG 数据维度为 62 * N，其中62为 channel 数量， N 为采样点个数（已下采样到200 Hz）
+        此函数将预处理后的 EEG 信号转化为 CNN 网络所对应的数据格式，即 62 * 200 的二维输入（每 1s 的信号作为一个样本）
+    :param folder_path: Preprocessed_EEG 文件夹对应的路径
+    :return feature_vector_list, label_list: 分别为样本的特征向量，样本的标签
+    '''
+    feature_vector_list = []
+    label_list = []
+    labels = get_labels(os.path.join(folder_path, 'label.mat'))
+    try:
+        all_mat_file = os.walk(folder_path)
+        skip_set = {'label.mat', 'readme.txt'}
+        file_cnt = 0
+        for path, dir_list, file_list in all_mat_file:
+            for file_name in file_list:
+                file_cnt += 1
+                print('当前已处理到{}，总进度{}/{}'.format(file_name, file_cnt, len(file_list)))
+                if file_name not in skip_set:
+                    all_features_dict = scio.loadmat(os.path.join(folder_path, file_name),
+                                                     verify_compressed_data_integrity=False)
+                    for key in all_features_dict.keys():
+                        if 'eeg' not in key:
+                            continue
+                        cur_feature = all_features_dict[key]  # 维度为 62 * N，每200个采样点截取一个样本，不足200时舍弃
+                        length = len(cur_feature[0])
+                        pos = 0
+                        while pos + 200 <= length:
+                            feature_vector_list.extend(cur_feature[:, pos:pos + 200])
+                            raw_label = labels[int(key.split('_')[-1][3:]) - 1]  # 截取片段对应的 label，-1, 0, 1
+                            label_list.append(raw_label)
+                            pos += 200
+
+    except FileNotFoundError as e:
+        print('加载数据时出错: {}'.format(e))
+
+    return feature_vector_list, label_2_onehot(label_list)

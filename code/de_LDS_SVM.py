@@ -3,31 +3,22 @@
 使用提取的 de_LDS 特征进行情感分类，分类器使用 SVM，快速验证。
 Created by Xiao Guowen.
 '''
-from utils
+from utils.tools import build_extracted_features_dataset
+from sklearn.model_selection import train_test_split
+from sklearn import svm
+from sklearn.metrics import classification_report, confusion_matrix
 
 
-import scipy.io as scio
-import numpy as np
-import os
+# 样本加载
+folder_path = '../data/ExtractedFeatures/'
+de_LDS_feature_list, de_LDS_label_list = build_extracted_features_dataset(folder_path, 'de_LDS', 'gamma')
 
+# 训练集，测试集分割
+train_feature, test_feature, train_label, test_label = train_test_split(de_LDS_feature_list, de_LDS_label_list, test_size=0.20)
 
-extracted_feature_path = '../data/ExtractedFeatures/'
-labels = [2, 1, 0, 0, 1, 2, 0, 1, 2, 2, 1, 0, 1, 2, 0]  # 2 for positive, 1 for neutral, 0 for negative
-de_LDS_data = []
-skip_set = {'label.mat', 'readme.txt'}
-try:
-    all_mat_file = os.walk(extracted_feature_path)
-    for path, dir_list, file_list in all_mat_file:
-        for file_name in file_list:
-            if file_name not in skip_set:
-                de_LDS_data.append((scio.loadmat(os.path.join(extracted_feature_path, file_name),
-                                                 verify_compressed_data_integrity=False)[
-                    'de_LDS15']))
-                '''
-                for video_clips in range(15):
-                    de_LDS_data.append((scio.loadmat(os.path.join(extracted_feature_path, file_name), verify_compressed_data_integrity=False)['de_LDS{}'.format(video_clips + 1)]))
-                '''
-except FileNotFoundError as e:
-    print('加载数据时出错: {}'.format(e))
-
-print(np.array(de_LDS_data).shape)
+# SVM 分类器训练与预测
+svc_classifier = svm.SVC(kernel='linear')
+svc_classifier.fit(train_feature, train_label)
+pred_label = svc_classifier.predict(test_feature)
+print(confusion_matrix(test_label, pred_label))
+print(classification_report(test_label, pred_label))
