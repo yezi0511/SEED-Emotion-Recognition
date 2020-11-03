@@ -6,6 +6,8 @@ Created by Xiao Guowen.
 import scipy.io as scio
 import numpy as np
 import os
+import torch
+import torch.nn.functional as F
 
 
 def get_labels(label_path):
@@ -26,7 +28,7 @@ def label_2_onehot(label_list):
     look_up_table = {-1: [1, 0, 0],
                      0: [0, 1, 0],
                      1: [0, 0, 1]}
-    label_onehot = [look_up_table[label] for label in label_list]
+    label_onehot = [np.asarray(look_up_table[label]) for label in label_list]
     return label_onehot
 
 
@@ -112,7 +114,7 @@ def build_preprocessed_eeg_dataset_CNN(folder_path):
                 if file_name not in skip_set:
                     all_trials_dict = scio.loadmat(os.path.join(folder_path, file_name),
                                                    verify_compressed_data_integrity=False)
-                    subject_name = file_name.split('.')[0]
+                    experiment_name = file_name.split('.')[0]
                     feature_vector_trial_dict = {}
                     label_trial_dict = {}
                     for key in all_trials_dict.keys():
@@ -124,15 +126,16 @@ def build_preprocessed_eeg_dataset_CNN(folder_path):
                         length = len(cur_trial[0])
                         pos = 0
                         while pos + 200 <= length:
-                            feature_vector_list.extend(cur_trial[:, pos:pos + 200])
+                            feature_vector_list.append(np.asarray(cur_trial[:, pos:pos + 200]))
                             raw_label = labels[int(key.split('_')[-1][3:]) - 1]  # 截取片段对应的 label，-1, 0, 1
                             label_list.append(raw_label)
                             pos += 200
-                        feature_vector_trial_dict[key] = feature_vector_list
-                        label_trial_dict[key] = label_2_onehot(label_list)
+                        trial = key.split('_')[1][3:]
+                        feature_vector_trial_dict[trial] = np.asarray(feature_vector_list)
+                        label_trial_dict[trial] = np.asarray(label_2_onehot(label_list))
 
-                    feature_vector_dict[subject_name] = feature_vector_trial_dict
-                    label_dict[subject_name] = label_trial_dict
+                    feature_vector_dict[experiment_name] = feature_vector_trial_dict
+                    label_dict[experiment_name] = label_trial_dict
                 else:
                     continue
 
@@ -140,3 +143,46 @@ def build_preprocessed_eeg_dataset_CNN(folder_path):
         print('加载数据时出错: {}'.format(e))
 
     return feature_vector_dict, label_dict
+
+
+def subject_independent_data_split(feature_vector_dict, label_dict, test_subject):
+    '''
+        使用 subject_independent 的方式做数据切分
+    :param feature_vector_dict: build_preprocessed_eeg_dataset_CNN 函数返回的 feature_vector_dict
+    :param label_dict: build_preprocessed_eeg_dataset_CNN 函数返回的 label_dict
+    :param test_subject: 留一法，用作测试集的 subject
+    :return train_feature, train_label, test_feature, test_label: 训练特征，训练标签，测试特征，测试标签
+    '''
+    train_feature = []
+    train_label = []
+    test_feature = []
+    test_label = []
+    for experiment in feature_vector_dict.keys():
+        subject = experiment.split('_')[0]
+        for trial in feature_vector_dict[experiment].keys():
+            if subject == test_subject:
+                test_feature.extend(feature_vector_dict[experiment][trial])
+                test_label.extend(label_dict[experiment][trial])
+            else:
+                train_feature.extend(feature_vector_dict[experiment][trial])
+                train_label.extend(label_dict[experiment][trial])
+    return train_feature, train_label, test_feature, test_label
+
+
+class RawEEGDataset(torch.utils.data.Dataset):
+    def __init__(self, feature_list, label_list, desire_shape):
+        self.feature_list = feature_list
+        self.label_list = label_list
+        self.desire_shape = desire_shape
+
+    def __getitem__(self, index):
+        self.feature_list[index] = self.feature_list[index].reshape(self.desire_shape)
+        # 1 * 62 * 200，对 200 这个维度进行归一化
+        feature = F.normalize(torch.from_numpy(self.feature_list[index]).float(), p=2, dim=2)
+        label = torch.from_numpy(self.label_list[index]).long()
+        label = torch.argmax(label)
+        return feature, label
+
+    def __len__(self):
+        return len(self.label_list)
+

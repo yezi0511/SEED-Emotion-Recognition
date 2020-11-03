@@ -1,0 +1,28 @@
+2020.10.28
+    使用 all_data_svm 进行测试
+    SVC:： 参数选择为 svc_classifier = svm.SVC(C=0.6, kernel='rbf')
+    样本划分： train_feature, test_feature, train_label, test_label = train_test_split(de_LDS_feature_list, de_LDS_label_list, test_size=0.20)
+    说明： subject-dependent，只选取了 gamma 频带的信号，使用 62 channels 的信号，从“所有数据”中随机选取了 20% 作为测试集的结果如下
+        [[ 8812  1034   151]
+         [  517  9354    88]
+         [  179   224 10187]]
+                      precision    recall  f1-score   support
+
+                  -1       0.93      0.88      0.90      9997
+                   0       0.88      0.94      0.91      9959
+                   1       0.98      0.96      0.97     10590
+
+            accuracy                           0.93     30546
+           macro avg       0.93      0.93      0.93     30546
+        weighted avg       0.93      0.93      0.93     30546
+
+    分析： 准确率过于高，仔细对比原文后发现是数据的切分方式存在问题，要将被试一次实验15个 trials 的数据按 trial 进行切分，比如选取其中9个 trials 的数据作为训练集，剩余6个作为测试集
+
+2020.10.30
+    使用 paper_svm 进行测试
+    SVC： 参数选择为 svc_classifier = svm.SVC(C=0.8, kernel='rbf')
+    说明： 对每个 experiment 单独进行测试，最后统计准确率，15 个 trials 中选取 9 个作为训练集，6 个作为测试集
+    结果： 所有 experiment 上的平均 accuracy 为：0.7311335902376365
+    总结：1 名 subject 的一次 experiment 包含 15 个 trial(或 session)，在 SEED 数据集进行情感分类时，不能将所有数据汇总后随机进行切分，否则会造成准确率虚高，本质是过拟合。
+          按 subject-dependent 的方式做实验时，也应该保证 trial/session 数据的完整性，例如选取 9 个 trial 做训练集，6 个 trial 做测试集。意义不大
+          按 subject-independent 的方式做实验时，按 subject 切分数据即可，常使用“留一法”，即 14 个 subject 的数据做训练集，1 个 subject 的数据做测试集，最后统计均值/方差等。
