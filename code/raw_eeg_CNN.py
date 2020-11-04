@@ -13,17 +13,19 @@ from torch.utils.tensorboard import SummaryWriter
 # 加载数据，整理成所需要的格式
 folder_path = '../data/Preprocessed_EEG/'
 feature_vector_dict, label_dict = build_preprocessed_eeg_dataset_CNN(folder_path)
-train_feature, train_label, test_feature, test_label = subject_independent_data_split(feature_vector_dict, label_dict, '2')
+train_feature, train_label, test_feature, test_label = subject_independent_data_split(feature_vector_dict, label_dict,
+                                                                                      {'2', '6', '9'})
 
-train_data = RawEEGDataset(train_feature, train_label, [1, 62, 200])
-test_data = RawEEGDataset(test_feature, test_label, [1, 62, 200])
+desire_shape = [1, 62, 200]
+train_data = RawEEGDataset(train_feature, train_label, desire_shape)
+test_data = RawEEGDataset(test_feature, test_label, desire_shape)
 
 # 超参数设置
 device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 num_epochs = 30
 num_classes = 3
-batch_size = 6
-learning_rate = 0.00008
+batch_size = 24
+learning_rate = 0.0001
 
 # Data loader
 train_data_loader = DataLoader(train_data, batch_size=batch_size, shuffle=True, drop_last=False)
@@ -35,25 +37,25 @@ class ConvNet(nn.Module):
     def __init__(self, num_classes):
         super(ConvNet, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size=3, stride=1, padding=(1, 1), bias=True),
-            nn.BatchNorm2d(8),
-            nn.ReLU(),
+            nn.Conv2d(1, 32, kernel_size=5, stride=(1, 1), padding=(2, 2), bias=True),
+            nn.BatchNorm2d(32),
+            nn.LeakyReLU(),
             nn.AvgPool2d(kernel_size=2, stride=2)
         )
         self.layer2 = nn.Sequential(
-            nn.Conv2d(8, 16, kernel_size=3, stride=1, padding=(1, 1), bias=True),
-            nn.BatchNorm2d(16),
-            nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=5, stride=(1, 1), padding=(2, 2), bias=True),
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(),
             nn.AvgPool2d(kernel_size=2, stride=2)
         )
         self.layer3 = nn.Sequential(
-            nn.Conv2d(16, 32, kernel_size=3, stride=1, padding=(1, 1), bias=True),
-            nn.BatchNorm2d(32),
-            nn.ReLU(),
+            nn.Conv2d(64, 128, kernel_size=3, stride=(1, 1), padding=(1, 1), bias=True),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(),
             nn.AvgPool2d(kernel_size=2, stride=2)
         )
-        self.fc1 = nn.Linear(32 * 7 * 25, 64, bias=True)
-        self.fc2 = nn.Linear(64, num_classes, bias=True)
+        self.fc1 = nn.Linear(128 * 7 * 25, 256, bias=True)
+        self.fc2 = nn.Linear(256, num_classes, bias=True)
 
     def forward(self, x):
         out = self.layer1(x)
@@ -69,13 +71,13 @@ model = ConvNet(num_classes).to(device)
 
 # Loss and optimizer
 criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.95)
-writer = SummaryWriter('../log')
+optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate, weight_decay=0.001)
+scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.95)
 
 
 # Train the model
 def train():
+    writer = SummaryWriter('../log')
     total_step = len(train_data_loader)
     batch_cnt = 0
     for epoch in range(num_epochs):
@@ -93,12 +95,14 @@ def train():
                 print('Epoch [{}/{}], Step [{}/{}], Loss: {:.4f}'.format(epoch + 1, num_epochs, i + 1,
                                                                          total_step, loss.item()))
         scheduler.step()
+        test()
     torch.save(model.state_dict(), '../model/model.ckpt')
 
 
 # Test the model
-def test():
-    model.load_state_dict(torch.load('../model/model.ckpt'))
+def test(is_load=False):
+    if is_load:
+        model.load_state_dict(torch.load('../model/model.ckpt'))
     model.eval()
     with torch.no_grad():
         correct = 0
@@ -113,5 +117,5 @@ def test():
         print('Test Accuracy is {}%'.format(100 * correct / total))
 
 
-# train()
-test()
+train()
+test(is_load=True)

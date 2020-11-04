@@ -145,12 +145,12 @@ def build_preprocessed_eeg_dataset_CNN(folder_path):
     return feature_vector_dict, label_dict
 
 
-def subject_independent_data_split(feature_vector_dict, label_dict, test_subject):
+def subject_independent_data_split(feature_vector_dict, label_dict, test_subject_set):
     '''
         使用 subject_independent 的方式做数据切分
     :param feature_vector_dict: build_preprocessed_eeg_dataset_CNN 函数返回的 feature_vector_dict
     :param label_dict: build_preprocessed_eeg_dataset_CNN 函数返回的 label_dict
-    :param test_subject: 留一法，用作测试集的 subject
+    :param test_subject_set: 留一法，用作测试集的 subject
     :return train_feature, train_label, test_feature, test_label: 训练特征，训练标签，测试特征，测试标签
     '''
     train_feature = []
@@ -160,7 +160,7 @@ def subject_independent_data_split(feature_vector_dict, label_dict, test_subject
     for experiment in feature_vector_dict.keys():
         subject = experiment.split('_')[0]
         for trial in feature_vector_dict[experiment].keys():
-            if subject == test_subject:
+            if subject in test_subject_set:
                 test_feature.extend(feature_vector_dict[experiment][trial])
                 test_label.extend(label_dict[experiment][trial])
             else:
